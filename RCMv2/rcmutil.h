@@ -130,6 +130,7 @@ void setup()
 #if RCM_COMM_METHOD == RCM_COMM_EWD
     configWifi();
     EWD::setupWifi(WifiDataToParse, WifiDataToSend);
+    setupOTA();
 #elif RCM_COMM_METHOD == RCM_COMM_ROS
     setupROS();
 #endif
@@ -197,4 +198,5 @@ void loop()
     wasEnabled = enabled;
 }
 
+void setupOTA();
 #endif // RCMUTIL_H
