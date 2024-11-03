@@ -24,9 +24,13 @@ uncomment one of the following lines depending on which communication method you
 #define _STRINGIZE(x) #x
 #define STRINGIZE(x) _STRINGIZE(x)
 
+#define BNO080_ADDRESS 0x4A
+
 #include "WiFi.h"
 #include "ESPAsyncWebServer.h"
 #include "ElegantOTA.h"
+#include "SparkFun_BNO08x_Arduino_Library.h"
+#include "Wire.h"
 //#include <string>
 
 #include "rcm.h" //defines pins
@@ -50,6 +54,53 @@ float servo1Val = 0;
 AsyncWebServer server(80);
 
 unsigned long ota_progress_millis = 0;
+unsigned long t_start,t_stop;
+BNO08x myIMU;
+
+struct Quarternion
+{
+    float quatI;
+    float quatJ;
+    float quatK;
+    float quatReal;
+    float quatRadianAccuracy;
+    void print(byte decimals = 2)
+    {
+        Serial.print(quatI, decimals);
+        Serial.print(F(","));
+        Serial.print(quatJ, decimals);
+        Serial.print(F(","));
+        Serial.print(quatK, decimals);
+        Serial.print(F(","));
+        Serial.print(quatReal, decimals);
+        Serial.print(F(","));
+        Serial.print(quatRadianAccuracy, decimals);
+        Serial.print(F("\n"));
+    }
+};
+struct RPY
+{
+    float roll;
+    float pitch;
+    float yaw;
+    void print(byte decimals = 2)
+    {
+        Serial.print(roll, decimals);
+        Serial.print(F(","));
+        Serial.print(pitch, decimals);
+        Serial.print(F(","));
+        Serial.print(yaw, decimals);
+        Serial.print(F("\n"));
+    }
+};
+
+static Quarternion robotQuart;
+static RPY robotRPY;
+
+float radsToDeg(float rads)
+{
+    return rads * 180.0 / PI;
+}
 
 void onOTAStart() {
     // Log when OTA has started
@@ -75,14 +126,106 @@ void onOTAEnd(bool success) {
     // <Add your own code here>
 }
 
+void scan(){
+    byte error, address;
+    int nDevices;
+    Serial.println("Scanning...");
+    nDevices = 0;
+    t_start = millis();
+    for(address = 1; address < 127; address++ ){
+    Wire1.beginTransmission(address);
+    error = Wire1.endTransmission();
+    if (error == 0){
+        Serial.print("I2C device found at address 0x");
+        if (address<16) 
+        Serial.print("0");
+        Serial.print(address,HEX);
+        Serial.println("  !");
+        nDevices++;
+    }else if (error==4){
+        Serial.print("Unknow error at address 0x");
+        if (address<16) 
+        Serial.print("0");
+        Serial.println(address,HEX);
+    }    
+    }
+    if (nDevices == 0)
+    Serial.println("No I2C devices found");
+    else
+    Serial.println("done");
+    t_stop = millis();
+    Serial.print("Time scanning: "); Serial.print((t_stop - t_start) / 1000.00); Serial.println(" sec.");
+}
+
+void i2cSetup()
+{
+    delay(100); //  Wait for BNO to boot
+    //Start i2c and BNO080
+    Wire1.flush();   // Reset I2C
+    Wire1.begin(SDA1, SCL1);
+}
+
+bool imuSetReports()
+{
+    Serial.println("Setting desired reports");
+    if (myIMU.enableRotationVector() == true)
+    {
+        Serial.println(F("Rotation vector enabled"));
+        Serial.println(F("Output in form roll, pitch, yaw"));
+        return true;
+    }
+    else
+    {
+        Serial.println("Could not enable rotation vector");
+        return false;
+    }
+}
+
+bool imuSetup(byte imuAddress)
+{
+    boolean imuStatus = myIMU.begin(BNO080_ADDRESS, Wire1);
+    //Wire1.setClockStretchLimit(4000);
+
+    if (imuStatus == false)
+    {
+        Serial.println("BNO080 not detected at default I2C address. Check your jumpers and the hookup guide. Freezing...");
+        return false;
+        //while (1);
+    }
+    else
+    {
+        Wire.setClock(400000);
+        return imuSetReports();
+    }
+}
+
+bool getRobotOrientation(RPY& robotRPY, BNO08x& imu)
+{
+    if (myIMU.wasReset())
+    {
+        Serial.print("sensor was reset ");
+        if (!imuSetReports())
+        {
+            return false;
+        }
+    }
+    bool dataAvailable = imu.getSensorEvent();
+    if (dataAvailable)
+    {
+        robotRPY.pitch = radsToDeg(imu.getPitch());
+        robotRPY.roll = radsToDeg(imu.getRoll());
+        robotRPY.yaw = radsToDeg(imu.getYaw());
+    }
+    return dataAvailable;
+}
+
 void Enabled()
 {
     // code to run while enabled, put your main code here
-    if (servo1Val > 180) servo1Val = -180;
-    else servo1Val += 15;
-    sC.setAngleImmediate(servo1Val);
-    //servo1Driver.enable();
-    
+    if (getRobotOrientation(robotRPY, myIMU))
+    {
+        robotRPY.print(3);
+    };
 }
 
 void Enable()
@@ -102,7 +245,10 @@ void Disable()
 void PowerOn()
 {
     Serial.println();
-    delay(2000);
+    delay(3000);
+    i2cSetup();
+    imuSetup(BNO080_ADDRESS);
+    //scan();
     // runs once on robot startup, set pin modes and use begin() if applicable here
 }
 
@@ -119,7 +265,7 @@ void Always()
     //Serial.printf("WIFI NAME: %s\n", EWD::routerName);
     //Serial.printf("WIFI PW: %s\n", EWD::routerPassword);
     ElegantOTA.loop();
-    delay(100);
+    delay(10);
 }
 
 #if RCM_COMM_METHOD == RCM_COMM_EWD
@@ -166,11 +312,12 @@ void configWifi()
 }
 void setupOTA()
 {
+    #if WIFI_MODE == WIFI_MODE_JOIN
     while (WiFi.status() != WL_CONNECTED) {
         delay(550);
         Serial.print(".");
     }
-
+    #endif
     server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
         request->send(200, "text/plain", "Hi! This is ElegantOTA AsyncDemo. Number: 624");
     });
