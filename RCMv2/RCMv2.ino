@@ -47,7 +47,7 @@ String AP_PASSWORD = STRINGIZE(WIFI_PASSWORD);
 JMotorDriverEsp32Servo servo1Driver = JMotorDriverEsp32Servo(port1);
 JServoController sC = JServoController(servo1Driver, false, INFINITY, INFINITY, INFINITY );
 float servo1Val = 0;
-
+bool IMUStatus = false;
 
 //const char* AP_NAME = "HAL"; const char* AP_PASSWORD = "booboo42";'
 
@@ -215,6 +215,11 @@ bool getRobotOrientation(RPY& robotRPY, BNO08x& imu)
         robotRPY.pitch = radsToDeg(imu.getPitch());
         robotRPY.roll = radsToDeg(imu.getRoll());
         robotRPY.yaw = radsToDeg(imu.getYaw());
+        IMUStatus = true;
+    }
+    else
+    {
+        IMUStatus = false;
     }
     return dataAvailable;
 }
@@ -278,7 +283,11 @@ void WifiDataToParse()
 void WifiDataToSend()
 {
     EWD::sendFl(voltageComp.getSupplyVoltage());
-    EWD::sendFl(servo1Val);
+    //EWD::sendFl(servo1Val);
+    EWD::sendFl(robotRPY.roll);
+    EWD::sendFl(robotRPY.pitch);
+    EWD::sendFl(robotRPY.yaw);
+    //EWD::sendBl(IMUStatus);
     // add data to send here: (EWD::sendBl(), EWD::sendBy(), EWD::sendIn(), EWD::sendFl())(boolean, byte, int, float)
 
 }
