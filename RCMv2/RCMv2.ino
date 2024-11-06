@@ -48,15 +48,22 @@ String AP_PASSWORD = STRINGIZE(WIFI_PASSWORD);
 JMotorDriverEsp32Servo servo1Driver = JMotorDriverEsp32Servo(port1);
 JServoController sC = JServoController(servo1Driver, false, INFINITY, INFINITY, INFINITY );
 float servo1Val = 0;
+
+JMotorDriverTMC7300 motorB = JMotorDriverTMC7300(portB);
+float motorBVal = 0.5;
+int motorBPos, motorBVel;
+
 bool IMUStatus = false;
 
 //const char* AP_NAME = "HAL"; const char* AP_PASSWORD = "booboo42";'
 
+unsigned long ota_progress_millis = 0;
 AsyncWebServer server(80);
 
-unsigned long ota_progress_millis = 0;
 unsigned long t_start,t_stop;
 BNO08x myIMU;
+
+ByteSizedEncoderDecoder bsed = ByteSizedEncoderDecoder(&Wire1, 14);
 
 struct Quarternion
 {
@@ -163,7 +170,18 @@ void i2cSetup()
     delay(100); //  Wait for BNO to boot
     //Start i2c and BNO080
     Wire1.flush();   // Reset I2C
-    Wire1.begin(SDA1, SCL1);
+    Wire1.begin(SDA1, SCL1, 400000);
+}
+
+bool bsedGetEncoders(byte encoderIdx, int& position, int& velocity)
+{
+    if (bsed.isEncoderActive(encoderIdx))
+    {
+        position = bsed.getEncoderPosition(encoderIdx);
+        velocity = bsed.getEncoderVelocity(encoderIdx);
+        return true;
+    }
+    return false;
 }
 
 bool imuSetReports()
@@ -225,6 +243,21 @@ bool getRobotOrientation(RPY& robotRPY, BNO08x& imu)
     return dataAvailable;
 }
 
+void motorsSet()
+{
+    motorB.set(motorBVal);
+}
+
+void motorsEnable()
+{
+    motorB.enable();
+}
+
+void motorsDisable()
+{
+    motorB.disable();
+}
+
 void Enabled()
 {
     // code to run while enabled, put your main code here
@@ -232,6 +265,9 @@ void Enabled()
     {
         robotRPY.print(3);
     };
+    motorsSet();
+    bsed.run();
+    bsedGetEncoders(1, motorBPos, motorBVel);
 }
 
 void Enable()
@@ -239,6 +275,7 @@ void Enable()
     // turn on outputs
     sC.enable();
     sC.setAngleImmediate(0);
+    motorsEnable();
 }
 
 void Disable()
@@ -254,6 +291,7 @@ void PowerOn()
     delay(3000);
     i2cSetup();
     imuSetup(BNO080_ADDRESS);
+    bsed.begin();
     //scan();
     // runs once on robot startup, set pin modes and use begin() if applicable here
 }
@@ -288,6 +326,8 @@ void WifiDataToSend()
     EWD::sendFl(robotRPY.roll);
     EWD::sendFl(robotRPY.pitch);
     EWD::sendFl(robotRPY.yaw);
+    EWD::sendFl(motorBPos);
+    EWD::sendFl(motorBVel);
     //EWD::sendBl(IMUStatus);
     // add data to send here: (EWD::sendBl(), EWD::sendBy(), EWD::sendIn(), EWD::sendFl())(boolean, byte, int, float)
 
