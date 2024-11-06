@@ -31,6 +31,7 @@ uncomment one of the following lines depending on which communication method you
 #include "ElegantOTA.h"
 #include "SparkFun_BNO08x_Arduino_Library.h"
 #include "Wire.h"
+#include "byte-sized-encoder-decoder.h"
 //#include <string>
 
 #include "rcm.h" //defines pins
